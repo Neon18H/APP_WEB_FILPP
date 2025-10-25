@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clientes • Supabase</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="color-scheme" content="light dark">
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <header class="mb-6">
+      <h1 class="text-2xl font-bold">Panel de Clientes</h1>
+      <p class="text-sm text-gray-600">Login + listado desde <code>clients</code> + repositorio lateral de documentos</p>
+    </header>
+
+    <!-- Login -->
+    <section id="loginPanel" class="mb-6 border border-gray-200 rounded-xl bg-white p-4 shadow-sm">
+      <h2 class="font-semibold mb-3">Ingresar</h2>
+      <form id="loginForm" class="grid gap-3 sm:grid-cols-3">
+        <input id="email" type="email" placeholder="Email" required class="border rounded-lg px-3 py-2">
+        <input id="password" type="password" placeholder="Contraseña" required class="border rounded-lg px-3 py-2">
+        <button class="rounded-lg px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700">Entrar</button>
+      </form>
+    </section>
+
+    <!-- Sesión -->
+    <section id="sessionBar" class="hidden mb-6 border border-gray-200 rounded-xl bg-white p-4 shadow-sm flex items-center justify-between">
+      <div>Sesión: <span id="whoami" class="font-medium"></span></div>
+      <button id="logoutBtn" class="rounded-lg px-3 py-1 border">Salir</button>
+    </section>
+
+    <!-- Avisos -->
+    <div id="toast" class="hidden mb-4 rounded-lg border px-4 py-3 text-sm"></div>
+
+    <!-- Clientes -->
+    <section id="clientsGrid" class="hidden grid gap-4 sm:grid-cols-2 lg:grid-cols-3"></section>
+    <div id="emptyState" class="hidden border border-gray-200 rounded-xl bg-white p-6 text-center text-gray-600">No hay clientes para mostrar.</div>
+
+    <!-- Loader -->
+    <div id="loader" class="hidden flex justify-center py-10">
+      <svg class="animate-spin h-6 w-6 text-indigo-600" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Drawer detalle cliente -->
+  <div id="clientDrawer" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/40" id="drawerBackdrop"></div>
+    <aside class="absolute right-0 top-0 h-full w-full sm:w-[560px] bg-white shadow-xl overflow-y-auto">
+      <div class="p-4 border-b flex items-center justify-between">
+        <div>
+          <h3 id="drawerTitle" class="text-lg font-semibold">Cliente</h3>
+          <p id="drawerSubtitle" class="text-sm text-gray-600">—</p>
+        </div>
+        <button id="drawerClose" class="rounded-lg border px-3 py-1">Cerrar</button>
+      </div>
+
+      <div class="p-4 space-y-6">
+        <!-- Info -->
+        <section class="space-y-1">
+          <h4 class="font-semibold">Información</h4>
+          <div id="clientInfo" class="text-sm text-gray-700 space-y-1"></div>
+        </section>
+
+        <!-- Subir documento -->
+        <section>
+          <h4 class="font-semibold mb-2">Subir documento</h4>
+          <label class="cursor-pointer inline-flex items-center gap-2 border rounded-lg px-3 py-2 hover:bg-gray-50">
+            <input id="drawerFile" type="file" class="hidden" />
+            <span>Seleccionar archivo</span>
+          </label>
+          <p class="text-xs text-gray-500 mt-1">Se guardará en <code id="drawerPathHint">client_docs/&lt;id&gt;/</code></p>
+        </section>
+
+        <!-- Lista documentos -->
+        <section>
+          <div class="flex items-center justify-between">
+            <h4 class="font-semibold">Documentos</h4>
+            <button id="drawerRefresh" class="text-sm rounded-lg border px-2 py-1">Recargar</button>
+          </div>
+          <ul id="drawerDocs" class="mt-2 space-y-1 text-sm"></ul>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+
+    // ========= CONFIG =========
+    const SUPABASE_URL = "";
+    const SUPABASE_ANON_KEY = "";
+    const CLIENTS_TABLE = "clients";
+    const BUCKET = "client_docs";
+
+    // ========= INIT =========
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // UI helpers
+    const $ = (s) => document.querySelector(s);
+    const loginPanel = $("#loginPanel");
+    const sessionBar = $("#sessionBar");
+    const whoami = $("#whoami");
+    const grid = $("#clientsGrid");
+    const emptyState = $("#emptyState");
+    const toast = $("#toast");
+    const loader = $("#loader");
+
+    // Drawer refs
+    const drawer = $("#clientDrawer");
+    const drawerBackdrop = $("#drawerBackdrop");
+    const drawerClose = $("#drawerClose");
+    const drawerTitle = $("#drawerTitle");
+    const drawerSubtitle = $("#drawerSubtitle");
+    const drawerPathHint = $("#drawerPathHint");
+    const drawerFile = $("#drawerFile");
+    const drawerDocs = $("#drawerDocs");
+    const drawerRefresh = $("#drawerRefresh");
+    const clientInfo = $("#clientInfo");
+    let currentClient = null;
+
+    function setLoading(v){ loader.classList.toggle("hidden", !v); }
+    function showToast(msg, kind="ok"){
+      toast.textContent = msg;
+      toast.classList.remove("hidden");
+      toast.classList.toggle("border-green-300", kind==="ok");
+      toast.classList.toggle("bg-green-50", kind==="ok");
+      toast.classList.toggle("text-green-800", kind==="ok");
+      toast.classList.toggle("border-red-300", kind==="err");
+      toast.classList.toggle("bg-red-50", kind==="err");
+      toast.classList.toggle("text-red-800", kind==="err");
+      setTimeout(()=>toast.classList.add("hidden"), 3500);
+    }
+    function setUI(loggedIn){
+      loginPanel.classList.toggle("hidden", loggedIn);
+      sessionBar.classList.toggle("hidden", !loggedIn);
+      grid.classList.toggle("hidden", !loggedIn);
+      if (!loggedIn){ grid.innerHTML = ""; emptyState.classList.add("hidden"); }
+    }
+    function openDrawer(){ drawer.classList.remove("hidden"); }
+    function closeDrawer(){ drawer.classList.add("hidden"); currentClient = null; drawerDocs.innerHTML=""; drawerFile.value=""; }
+
+    // ========= DATA: clients =========
+    async function listClients(){
+      const { data, error } = await supabase
+        .from(CLIENTS_TABLE)
+        .select("id, name, contact, tax_id, payment_state, declaration_status, payment_amount, created_at, due_date, notes")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    }
+
+    // ========= STORAGE: por cliente =========
+    async function listDocsForClient(clientId){
+      const { data, error } = await supabase.storage.from(BUCKET).list(clientId, { limit: 100 });
+      if (error) throw error;
+      return data ?? [];
+    }
+    async function uploadDoc(clientId, file){
+      const filename = Date.now() + "_" + file.name.replace(/\s+/g,"_");
+      const path = clientId + "/" + filename;
+      const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
+      if (error) throw error;
+      return path;
+    }
+    async function getSignedUrl(path){
+      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);
+      if (error) throw error;
+      return data?.signedUrl;
+    }
+
+    // ========= RENDER =========
+    function renderClients(clients){
+      grid.innerHTML = "";
+      if (!clients.length){ emptyState.classList.remove("hidden"); return; }
+      emptyState.classList.add("hidden");
+
+      for (const c of clients){
+        const statusDecl = String(c.declaration_status ?? "—");
+        const statusPay  = String(c.payment_state ?? "—");
+        const due = c.due_date ? new Date(c.due_date).toLocaleDateString() : "—";
+        const amount = c.payment_amount ?? "—";
+
+        const card = document.createElement("article");
+        card.className = "cursor-pointer border border-gray-200 rounded-xl bg-white p-5 shadow-sm flex flex-col gap-4 hover:shadow";
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="font-semibold text-lg break-words">${c.name ?? `Cliente ${String(c.id).slice(0,6)}`}</h3>
+              <p class="text-sm text-gray-600 break-words">
+                Contacto: ${c.contact ?? "—"} · NIT/Tax: ${c.tax_id ?? "—"}
+              </p>
+              <p class="text-xs text-gray-500">
+                Vence: ${due} · Monto: ${amount}
+              </p>
+              ${c.notes ? `<p class="text-xs text-gray-500 mt-1">Notas: ${c.notes}</p>` : ""}
+            </div>
+            <div class="text-right text-xs">
+              <div class="inline-block rounded-full px-2 py-1 border ${statusDecl.toLowerCase().includes("ok") ? "border-green-300 bg-green-50 text-green-800" : "border-amber-300 bg-amber-50 text-amber-800"}">
+                Declaración: ${statusDecl}
+              </div>
+              <div class="inline-block rounded-full px-2 py-1 border ml-2 ${statusPay.toLowerCase().includes("pag") || statusPay.toLowerCase()==="paid" ? "border-green-300 bg-green-50 text-green-800" : "border-amber-300 bg-amber-50 text-amber-800"}">
+                Pago: ${statusPay}
+              </div>
+            </div>
+          </div>
+        `;
+        card.addEventListener("click", () => openClient(c));
+        grid.appendChild(card);
+      }
+    }
+
+    async function renderDrawerDocs(client){
+      drawerDocs.innerHTML = "<li class='text-gray-500'>Cargando…</li>";
+      try {
+        const docs = await listDocsForClient(client.id);
+        drawerDocs.innerHTML = "";
+        if (!docs.length){
+          drawerDocs.innerHTML = "<li class='text-gray-500'>Sin documentos</li>";
+          return;
+        }
+        for (const d of docs){
+          const url = await getSignedUrl(client.id + "/" + d.name);
+          const li = document.createElement("li");
+          li.innerHTML = "<a class='text-indigo-600 hover:underline break-all' target='_blank' href='" + url + "'>" + d.name + "</a>";
+          drawerDocs.appendChild(li);
+        }
+      } catch (e) {
+        drawerDocs.innerHTML = "<li class='text-red-600'>Error listando documentos</li>";
+      }
+    }
+
+    function openClient(client){
+      currentClient = client;
+      const displayName = client.name || ("Cliente " + String(client.id).slice(0,6));
+      drawerTitle.textContent = displayName;
+      const subtitle = client.contact ? (client.contact + " · " + (client.tax_id || "—")) : (client.tax_id || "—");
+      drawerSubtitle.textContent = subtitle;
+      drawerPathHint.textContent = "client_docs/" + client.id + "/";
+
+      const info = [];
+      info.push("<div><span class='text-gray-500'>ID:</span> " + client.id + "</div>");
+      info.push("<div><span class='text-gray-500'>Pago:</span> " + (client.payment_state || "—") + " · <span class='text-gray-500'>Declaración:</span> " + (client.declaration_status || "—") + "</div>");
+      info.push("<div><span class='text-gray-500'>Vence:</span> " + (client.due_date ? new Date(client.due_date).toLocaleDateString() : "—") + " · <span class='text-gray-500'>Monto:</span> " + ((client.payment_amount != null) ? client.payment_amount : "—") + "</div>");
+      if (client.notes){ info.push("<div><span class='text-gray-500'>Notas:</span> " + client.notes + "</div>"); }
+      info.push("<div><span class='text-gray-500'>Creado:</span> " + (client.created_at ? new Date(client.created_at).toLocaleString() : "—") + "</div>");
+      clientInfo.innerHTML = info.join("");
+
+      openDrawer();
+      renderDrawerDocs(client);
+    }
+
+    async function refresh(){
+      try {
+        setLoading(true);
+        const rows = await listClients();
+        renderClients(rows);
+      } catch (e) {
+        showToast(e.message || "Error al listar clientes", "err");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // ========= AUTH =========
+    supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user){
+        setUI(true);
+        whoami.textContent = session.user.email || session.user.id;
+        await refresh();
+      } else {
+        setUI(false);
+      }
+    });
+
+    // Login/Logout
+    document.querySelector("#loginForm")?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      try {
+        setLoading(true);
+        const email = $("#email").value.trim();
+        const password = $("#password").value;
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } catch (e) {
+        showToast(e.message || "Error al iniciar sesión", "err");
+      } finally {
+        setLoading(false);
+      }
+    });
+    document.querySelector("#logoutBtn")?.addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      showToast("Sesión cerrada");
+    });
+
+    // Drawer events
+    document.querySelector("#drawerBackdrop").addEventListener("click", closeDrawer);
+    document.querySelector("#drawerClose").addEventListener("click", closeDrawer);
+    document.querySelector("#drawerRefresh").addEventListener("click", () => currentClient && renderDrawerDocs(currentClient));
+    document.querySelector("#drawerFile").addEventListener("change", async (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file || !currentClient) return;
+      try {
+        setLoading(true);
+        await uploadDoc(currentClient.id, file);
+        showToast("Documento subido correctamente");
+        await renderDrawerDocs(currentClient);
+      } catch (e) {
+        showToast(e.message || "Error al subir documento", "err");
+      } finally {
+        setLoading(false);
+        document.querySelector("#drawerFile").value = "";
+      }
+    });
+
+    // Debug helper (opcional)
+    window.debugClients = async () => {
+      const { data, error } = await supabase.from(CLIENTS_TABLE).select("*").limit(5);
+      console.log({ data, error });
+    };
+  </script>
+</body>
+</html>
