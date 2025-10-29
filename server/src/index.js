@@ -7,25 +7,55 @@ import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
-const {
-  PORT = 4000,
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY,
-  SUPABASE_BUCKET,
-  SUPABASE_CLIENTS_TABLE,
-  TOKEN_COOKIE_NAME = 'sb-access-token',
-  REFRESH_COOKIE_NAME = 'sb-refresh-token',
-  TOKEN_REFRESH_MARGIN = '60'
-} = process.env;
+function getEnvVar(primaryKey, aliases = []) {
+  const keys = [primaryKey, ...aliases];
+  for (const key of keys) {
+    const rawValue = process.env[key];
+    if (typeof rawValue === 'string' && rawValue.trim() !== '') {
+      return rawValue.trim();
+    }
+  }
+  return undefined;
+}
+
+const PORT = process.env.PORT ?? 4000;
+const TOKEN_COOKIE_NAME = process.env.TOKEN_COOKIE_NAME ?? 'sb-access-token';
+const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME ?? 'sb-refresh-token';
+const TOKEN_REFRESH_MARGIN = process.env.TOKEN_REFRESH_MARGIN ?? '60';
+
+const SUPABASE_URL = getEnvVar('SUPABASE_URL', [
+  'VITE_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_URL'
+]);
+const SUPABASE_SERVICE_ROLE_KEY = getEnvVar('SUPABASE_SERVICE_ROLE_KEY', [
+  'SUPABASE_SERVICE_ROLE',
+  'SUPABASE_SERVICE_KEY'
+]);
+const SUPABASE_BUCKET = getEnvVar('SUPABASE_BUCKET', [
+  'SUPABASE_STORAGE_BUCKET',
+  'SUPABASE_BUCKET_NAME'
+]);
+const SUPABASE_CLIENTS_TABLE = getEnvVar('SUPABASE_CLIENTS_TABLE', [
+  'SUPABASE_CLIENTS_TABLE_NAME',
+  'SUPABASE_TABLE_CLIENTS'
+]);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables');
+  throw new Error(
+    'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables. ' +
+      'Please set them (aliases supported: VITE_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_URL, ' +
+      'SUPABASE_SERVICE_ROLE, SUPABASE_SERVICE_KEY).'
+  );
 }
 if (!SUPABASE_BUCKET) {
-  throw new Error('Missing SUPABASE_BUCKET environment variable');
+  throw new Error(
+    'Missing SUPABASE_BUCKET environment variable. Aliases supported: SUPABASE_STORAGE_BUCKET, SUPABASE_BUCKET_NAME.'
+  );
 }
 if (!SUPABASE_CLIENTS_TABLE) {
-  throw new Error('Missing SUPABASE_CLIENTS_TABLE environment variable');
+  throw new Error(
+    'Missing SUPABASE_CLIENTS_TABLE environment variable. Aliases supported: SUPABASE_CLIENTS_TABLE_NAME, SUPABASE_TABLE_CLIENTS.'
+  );
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {

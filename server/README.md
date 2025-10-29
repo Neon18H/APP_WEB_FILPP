@@ -4,10 +4,10 @@ Servicio Backend for Frontend (Node.js + Express) que encapsula la comunicación
 
 ## Configuración
 1. Copia `.env.example` a `.env` y completa:
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `SUPABASE_BUCKET`
-   - `SUPABASE_CLIENTS_TABLE`
+   - `SUPABASE_URL` (aliases soportados: `VITE_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY` (aliases soportados: `SUPABASE_SERVICE_ROLE`, `SUPABASE_SERVICE_KEY`)
+   - `SUPABASE_BUCKET` (aliases soportados: `SUPABASE_STORAGE_BUCKET`, `SUPABASE_BUCKET_NAME`)
+   - `SUPABASE_CLIENTS_TABLE` (aliases soportados: `SUPABASE_CLIENTS_TABLE_NAME`, `SUPABASE_TABLE_CLIENTS`)
 2. (Opcional) ajusta `TOKEN_COOKIE_NAME`, `REFRESH_COOKIE_NAME` o el `PORT` según tus necesidades.
 
 ## Uso local con Node.js
