@@ -47,130 +47,146 @@
   </div>
 
   <script type="module">
-    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
-
-    // ========= CONFIG =========
-    const SUPABASE_URL = "https://kswpgfomoakhmarbgfob.supabase.co"; // <-- cambia esto
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtzd3BnZm9tb2FraG1hcmJnZm9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1MzM3MDksImV4cCI6MjA3NjEwOTcwOX0.LFfx3lAvc5cy9S9XCshPkwrrh9oWdSiNyUIFPMG9y2E";                 // <-- y esto
-    const CLIENTS_TABLE = "clients";
-    const BUCKET = "client_docs";
-
-    // ========= INIT =========
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const API_BASE = '/api';
 
     // UI helpers
     const $ = (s) => document.querySelector(s);
-    const loginPanel = $("#loginPanel");
-    const sessionBar = $("#sessionBar");
-    const whoami = $("#whoami");
-    const grid = $("#clientsGrid");
-    const emptyState = $("#emptyState");
-    const toast = $("#toast");
-    const loader = $("#loader");
+    const loginPanel = $('#loginPanel');
+    const sessionBar = $('#sessionBar');
+    const whoami = $('#whoami');
+    const grid = $('#clientsGrid');
+    const emptyState = $('#emptyState');
+    const toast = $('#toast');
+    const loader = $('#loader');
 
-    function setLoading(v){ loader.classList.toggle("hidden", !v); }
-    function showToast(msg, kind="ok"){
+    function setLoading(v){ loader.classList.toggle('hidden', !v); }
+    function showToast(msg, kind='ok'){
       toast.textContent = msg;
-      toast.classList.remove("hidden");
-      toast.classList.toggle("border-green-300", kind==="ok");
-      toast.classList.toggle("bg-green-50", kind==="ok");
-      toast.classList.toggle("text-green-800", kind==="ok");
-      toast.classList.toggle("border-red-300", kind==="err");
-      toast.classList.toggle("bg-red-50", kind==="err");
-      toast.classList.toggle("text-red-800", kind==="err");
-      setTimeout(()=>toast.classList.add("hidden"), 3500);
+      toast.classList.remove('hidden');
+      toast.classList.toggle('border-green-300', kind==='ok');
+      toast.classList.toggle('bg-green-50', kind==='ok');
+      toast.classList.toggle('text-green-800', kind==='ok');
+      toast.classList.toggle('border-red-300', kind==='err');
+      toast.classList.toggle('bg-red-50', kind==='err');
+      toast.classList.toggle('text-red-800', kind==='err');
+      setTimeout(()=>toast.classList.add('hidden'), 3500);
     }
     function setUI(loggedIn){
-      loginPanel.classList.toggle("hidden", loggedIn);
-      sessionBar.classList.toggle("hidden", !loggedIn);
-      grid.classList.toggle("hidden", !loggedIn);
-      if (!loggedIn){ grid.innerHTML = ""; emptyState.classList.add("hidden"); }
+      loginPanel.classList.toggle('hidden', loggedIn);
+      sessionBar.classList.toggle('hidden', !loggedIn);
+      grid.classList.toggle('hidden', !loggedIn);
+      if (!loggedIn){
+        grid.innerHTML = '';
+        emptyState.classList.add('hidden');
+        whoami.textContent = '';
+      }
     }
 
-    // ========= DATA: clients =========
+    async function apiFetch(path, { method = 'GET', body, asFormData = false, headers = {} } = {}){
+      const options = { method, credentials: 'include', headers: { ...headers } };
+      if (body && asFormData){
+        options.body = body;
+      } else if (body){
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+      }
+      const response = await fetch(`${API_BASE}${path}`, options);
+      const text = await response.text();
+      let data = {};
+      if (text){
+        try { data = JSON.parse(text); } catch (_) { data = {}; }
+      }
+      if (!response.ok){
+        const message = data.error || 'Error en la solicitud';
+        throw new Error(message);
+      }
+      return data;
+    }
+
+    // ========= DATA =========
     async function listClients(){
-      // Usa exactamente tus columnas reales
-      const { data, error } = await supabase
-        .from(CLIENTS_TABLE)
-        .select("id, name, contact, tax_id, payment_state, declaration_status, payment_amount, created_at, due_date, notes")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+      const { clients } = await apiFetch('/clients');
+      return clients ?? [];
     }
 
-    // ========= STORAGE: por cliente =========
     async function listDocsForClient(clientId){
-      const { data, error } = await supabase.storage.from(BUCKET).list(clientId, { limit: 100 });
-      if (error) throw error;
-      return data ?? [];
-    }
-    async function uploadDoc(clientId, file){
-      const filename = `${Date.now()}_${file.name.replace(/\\s+/g,"_")}`;
-      const path = `${clientId}/${filename}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
-      if (error) throw error;
-      return path;
-    }
-    async function getSignedUrl(path){
-      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);
-      if (error) throw error;
-      return data?.signedUrl;
+      try {
+        const { documents } = await apiFetch(`/clients/${clientId}/docs`);
+        return documents ?? [];
+      } catch (e) {
+        return [];
+      }
     }
 
-    // Render
+    async function uploadDoc(clientId, file){
+      const formData = new FormData();
+      formData.append('file', file);
+      const { name, signedUrl } = await apiFetch(`/clients/${clientId}/docs`, {
+        method: 'POST',
+        body: formData,
+        asFormData: true
+      });
+      return { name, signedUrl };
+    }
+
+    // Render helpers
     function addDocLi(ul, name, url){
-      const li = document.createElement("li");
-      li.className = "text-sm";
-      li.innerHTML = `<a class="text-indigo-600 hover:underline break-all" href="${url}" target="_blank">${name}</a>`;
+      const li = document.createElement('li');
+      li.className = 'text-sm';
+      if (url){
+        li.innerHTML = `<a class="text-indigo-600 hover:underline break-all" href="${url}" target="_blank">${name}</a>`;
+      } else {
+        li.textContent = name;
+      }
       ul.appendChild(li);
     }
+
     async function loadDocsForCard(clientId, ul){
       try {
         const docs = await listDocsForClient(clientId);
-        ul.innerHTML = "";
+        ul.innerHTML = '';
         if (!docs.length){
-          ul.innerHTML = `<li class="text-gray-500">Sin documentos</li>`;
+          ul.innerHTML = '<li class="text-gray-500">Sin documentos</li>';
           return;
         }
         for (const d of docs){
-          const url = await getSignedUrl(`${clientId}/${d.name}`);
-          addDocLi(ul, d.name, url);
+          addDocLi(ul, d.name, d.signedUrl);
         }
       } catch (e) {
-        ul.innerHTML = `<li class="text-red-600">Error listando documentos</li>`;
+        ul.innerHTML = '<li class="text-red-600">Error listando documentos</li>';
       }
     }
 
     function renderClients(clients){
-      grid.innerHTML = "";
-      if (!clients.length){ emptyState.classList.remove("hidden"); return; }
-      emptyState.classList.add("hidden");
+      grid.innerHTML = '';
+      if (!clients.length){ emptyState.classList.remove('hidden'); return; }
+      emptyState.classList.add('hidden');
 
       for (const c of clients){
-        const statusDecl = (c.declaration_status ?? "—").toString();
-        const statusPay  = (c.payment_state ?? "—").toString();
-        const due = c.due_date ? new Date(c.due_date).toLocaleDateString() : "—";
-        const amount = c.payment_amount ?? "—";
+        const statusDecl = (c.declaration_status ?? '—').toString();
+        const statusPay  = (c.payment_state ?? '—').toString();
+        const due = c.due_date ? new Date(c.due_date).toLocaleDateString() : '—';
+        const amount = c.payment_amount ?? '—';
 
-        const card = document.createElement("article");
-        card.className = "border border-gray-200 rounded-xl bg-white p-5 shadow-sm flex flex-col gap-4";
+        const card = document.createElement('article');
+        card.className = 'border border-gray-200 rounded-xl bg-white p-5 shadow-sm flex flex-col gap-4';
         card.innerHTML = `
           <div class="flex items-start justify-between gap-3">
             <div>
               <h3 class="font-semibold text-lg break-words">${c.name ?? `Cliente ${String(c.id).slice(0,6)}`}</h3>
               <p class="text-sm text-gray-600 break-words">
-                Contacto: ${c.contact ?? "—"} · NIT/Tax: ${c.tax_id ?? "—"}
+                Contacto: ${c.contact ?? '—'} · NIT/Tax: ${c.tax_id ?? '—'}
               </p>
               <p class="text-xs text-gray-500">
                 Vence: ${due} · Monto: ${amount}
               </p>
-              ${c.notes ? `<p class="text-xs text-gray-500 mt-1">Notas: ${c.notes}</p>` : ""}
+              ${c.notes ? `<p class="text-xs text-gray-500 mt-1">Notas: ${c.notes}</p>` : ''}
             </div>
             <div class="text-right text-xs">
-              <div class="inline-block rounded-full px-2 py-1 border ${statusDecl.toLowerCase().includes("ok") ? "border-green-300 bg-green-50 text-green-800" : "border-amber-300 bg-amber-50 text-amber-800"}">
+              <div class="inline-block rounded-full px-2 py-1 border ${statusDecl.toLowerCase().includes('ok') ? 'border-green-300 bg-green-50 text-green-800' : 'border-amber-300 bg-amber-50 text-amber-800'}">
                 Declaración: ${statusDecl}
               </div>
-              <div class="inline-block rounded-full px-2 py-1 border ml-2 ${statusPay.toLowerCase().includes("pag") || statusPay.toLowerCase()==="paid" ? "border-green-300 bg-green-50 text-green-800" : "border-amber-300 bg-amber-50 text-amber-800"}">
+              <div class="inline-block rounded-full px-2 py-1 border ml-2 ${statusPay.toLowerCase().includes('pag') || statusPay.toLowerCase()==='paid' ? 'border-green-300 bg-green-50 text-green-800' : 'border-amber-300 bg-amber-50 text-amber-800'}">
                 Pago: ${statusPay}
               </div>
             </div>
@@ -181,7 +197,7 @@
               <input type="file" class="hidden" />
               <span>Subir documento</span>
             </label>
-            <div class="text-xs text-gray-500">Se guardará en <code>${BUCKET}/${c.id}/</code></div>
+            <div class="text-xs text-gray-500">Se guardará en <code>${c.id}/</code></div>
           </div>
 
           <div class="border-t pt-3">
@@ -190,27 +206,23 @@
           </div>
         `;
 
-        // Upload
         const fileInput = card.querySelector('input[type=file]');
-        fileInput.addEventListener("change", async (ev) => {
+        fileInput.addEventListener('change', async (ev) => {
           const file = ev.target.files?.[0]; if (!file) return;
           try {
             setLoading(true);
-            const path = await uploadDoc(c.id, file);
-            showToast("Documento subido correctamente");
+            const { name, signedUrl } = await uploadDoc(c.id, file);
+            showToast('Documento subido correctamente');
             const ul = card.querySelector('[data-docs]');
-            const name = path.split("/").pop();
-            const url  = await getSignedUrl(path);
-            addDocLi(ul, name, url);
+            addDocLi(ul, name, signedUrl);
           } catch (e) {
-            showToast(e.message || "Error al subir documento", "err");
+            showToast(e.message || 'Error al subir documento', 'err');
           } finally {
             setLoading(false);
-            fileInput.value = "";
+            fileInput.value = '';
           }
         });
 
-        // Docs iniciales
         loadDocsForCard(c.id, card.querySelector('[data-docs]'));
         grid.appendChild(card);
       }
@@ -222,42 +234,57 @@
         const rows = await listClients();
         renderClients(rows);
       } catch (e) {
-        showToast(e.message || "Error al listar clientes", "err");
+        showToast(e.message || 'Error al listar clientes', 'err');
       } finally {
         setLoading(false);
       }
     }
 
-    // ========= AUTH =========
-    supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user){
+    async function bootstrapSession(){
+      try {
+        setLoading(true);
+        const { email, id } = await apiFetch('/auth/me');
         setUI(true);
-        whoami.textContent = session.user.email || session.user.id;
+        whoami.textContent = email || id;
         await refresh();
-      } else {
+      } catch (_) {
         setUI(false);
+      } finally {
+        setLoading(false);
       }
-    });
+    }
 
-    // Login/Logout
-    document.querySelector("#loginForm")?.addEventListener("submit", async (ev) => {
+    document.querySelector('#loginForm')?.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       try {
         setLoading(true);
-        const email = $("#email").value.trim();
-        const password = $("#password").value;
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const email = $('#email').value.trim();
+        const password = $('#password').value;
+        const { user } = await apiFetch('/auth/login', {
+          method: 'POST',
+          body: { email, password }
+        });
+        whoami.textContent = user?.email || user?.id || '';
+        setUI(true);
+        await refresh();
       } catch (e) {
-        showToast(e.message || "Error al iniciar sesión", "err");
+        showToast(e.message || 'Error al iniciar sesión', 'err');
       } finally {
         setLoading(false);
       }
     });
-    document.querySelector("#logoutBtn")?.addEventListener("click", async () => {
-      await supabase.auth.signOut();
-      showToast("Sesión cerrada");
+
+    document.querySelector('#logoutBtn')?.addEventListener('click', async () => {
+      try {
+        await apiFetch('/auth/logout', { method: 'POST' });
+      } catch (_) {
+        // ignore
+      }
+      showToast('Sesión cerrada');
+      setUI(false);
     });
+
+    bootstrapSession();
   </script>
 </body>
 </html>
